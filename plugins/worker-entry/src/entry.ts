@@ -80,6 +80,7 @@ import {
   type BootTransportFrame,
 } from './boot-redaction.ts'
 import { installModelRouteGuard, modelRouteOf } from './model-route.ts'
+import { installPhoneMcpKeyFetch } from './mcp-journal-key.ts'
 import { installNamespaceAuthority, type NamespaceRuntimeHooks } from './namespace-boot.ts'
 import { createPhoneProfileOverlay } from './profile-overlay.ts'
 import {
@@ -473,6 +474,10 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
   globals.__PDSH_LIFECYCLE__ = { state: 'run', budget: 0n, admission: 'open', reason: 'boot' }
 
   const disposers: (() => void)[] = []
+  // Before DSH boots: the MCP SDK binds `fetch` when a transport is built, which
+  // can precede llm-bridge's activation, so the journal key is attached beneath
+  // every binding (mcp-journal-key.ts, native-mcp.md).
+  disposers.push(installPhoneMcpKeyFetch())
   const consoleForwarder = installConsoleForwarding(channel)
   disposers.push(installChannelGlobals(channel))
   // The pinned runtime's `node:fs` bridge stores the UTF-8 encoding of any

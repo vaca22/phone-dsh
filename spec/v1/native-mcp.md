@@ -6,14 +6,16 @@ binary channel frames. `PDSH_PHONE_MCP_URL` and `PDSH_PHONE_MCP_TOKEN` select
 the existing official `mcp-phone` Worker plugin. Only this exact same-origin
 path bypasses `/v1/http`; authorization and `X-PDSH-Idempotency-Key` are preserved.
 
-The Worker transport (`llm-bridge`) attaches `X-PDSH-Idempotency-Key` to a JSON-RPC
-`tools/call` by exact correlation: while the tool journal runs an
-`mcp__<server>__<tool>` call it registers that call's key, tool name and canonical
-arguments (`exec-bridge` `call-context.ts`), and the transport sends the key of the
-single matching registration. No match or several matches fall back to the ambient
-tool-call context read before the transport's first await. This does not depend on
-the Worker's AsyncLocalStorage surviving the MCP SDK's own awaits, which it does not
-guarantee. The key's meaning and the endpoint's checks are unchanged.
+The Worker attaches `X-PDSH-Idempotency-Key` to a JSON-RPC `tools/call` POST to the
+phone endpoint (`PDSH_PHONE_MCP_URL`, or the same-origin `/mcp/native`) by exact
+correlation: while the tool journal runs an `mcp__<server>__<tool>` call it registers that
+call's key, tool name and canonical arguments (`exec-bridge` `call-context.ts`), and the
+transport sends the key of the single matching registration. No match or several matches
+fall back to the ambient tool-call context. The MCP SDK binds `fetch` when a transport is
+built, which can precede `llm-bridge`'s activation, so `worker-entry` installs this keying
+beneath every `fetch` binding before DSH boots (`mcp-journal-key.ts`); `llm-bridge`'s
+routed transport applies the same rule. The key's meaning and the endpoint's checks are
+unchanged.
 
 The native environment has one owner. When the App runs the Bot runtime, the Bot
 MCP listener is the Worker's only `phone` server and `PhoneDSHHost` must keep the

@@ -55,3 +55,4 @@ Protocol impact: P03; P05; P07; P08; P09; P12. P03 — tool journal 在 MCP 呼�
 | --- | --- | --- | --- |
 | 1 | Claude | 初版 | iOS consumer（本 PR）；韌體不變 |
 | 2 | Claude | 裝置驗證發現：Chat 經 Bot listener 呼叫 `ble_link_call`／原生工具一律缺 `X-PDSH-Idempotency-Key`（Worker 的 AsyncLocalStorage 在 MCP SDK 自身 await 後不可靠；`llm-bridge` 也在自己的 await 之後才讀）。改為 `tools/call` 依 tool journal 登記的（工具名、canonical 參數）精確關聯取 key，歧義則退回 await 前讀到的環境 context；另修 Bot 路徑未接上 `iphone_agent_run`（`PhoneNativeMCP.server` 單例）。key 語義與端點檢查不變。 | Worker（llm-bridge、tool-journal、exec-bridge call-context）；iOS app 接線 |
+| 3 | Claude | 裝置實證（Worker 內寫檔探針）：journal hook 有執行、全域 `fetch` 是 llm-bridge 的路由傳輸，但 MCP 請求完全沒經過它——MCP SDK 在建 transport 時以 `createFetchWithInit(baseFetch = fetch)` 綁定當時的 `fetch`，早於 llm-bridge 啟用。rev 2 的 ALS 假設不成立。改為 `worker-entry` 在 DSH 啟動前安裝只針對 phone MCP `tools/call` 的 key 包裝（`mcp-journal-key.ts`）。另修：`IPhoneAgentHost.prepare()` 不再在暖機時誤把鏡像關掉；`ChatPage` 捲動追蹤不再因 `Int(NaN)` 崩潰。 | Worker（worker-entry）；iOS app |
