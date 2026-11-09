@@ -145,6 +145,31 @@ function resolveDeliveryIdleTimeout(explicit: number | undefined): number {
 }
 
 const TOOL_CALL_CONTEXT_KEY = Symbol.for('phone-dsh.dsh.tool-call-context')
+/** Mirrors `MCP_CALL_KEYS_KEY` in exec-bridge's call-context.ts (the owner). */
+const MCP_CALL_KEYS_KEY = Symbol.for('phone-dsh.dsh.mcp-call-keys')
+interface McpCallKeyEntry { readonly tool: string, readonly key: string, readonly matches: (args: unknown) => boolean }
+
+function ambientToolKey(): string | undefined {
+  return (globalThis as { [TOOL_CALL_CONTEXT_KEY]?: ToolCallStore })[TOOL_CALL_CONTEXT_KEY]?.getStore()?.key
+}
+
+/**
+ * The journal key of a JSON-RPC `tools/call` body, by exact correlation with
+ * the in-flight MCP calls the tool journal registered. Undefined for any other
+ * body, and when no call or more than one call matches.
+ */
+export function correlatedMcpKey(body: Uint8Array | undefined): string | undefined {
+  const entries = (globalThis as { [MCP_CALL_KEYS_KEY]?: Set<McpCallKeyEntry> })[MCP_CALL_KEYS_KEY]
+  if (body === undefined || body.byteLength === 0 || entries === undefined || entries.size === 0) return undefined
+  let message: unknown
+  try { message = JSON.parse(new TextDecoder().decode(body)) } catch { return undefined }
+  if (message === null || typeof message !== 'object' || Array.isArray(message)) return undefined
+  const { method, params } = message as { method?: unknown, params?: { name?: unknown, arguments?: unknown } }
+  if (method !== 'tools/call' || typeof params?.name !== 'string') return undefined
+  const found = new Set<string>()
+  for (const entry of entries) if (entry.tool === params.name && entry.matches(params.arguments)) found.add(entry.key)
+  return found.size === 1 ? [...found][0] : undefined
+}
 
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308])
 const REDIRECT_STRIPPED = ['content-type', 'content-length', 'content-encoding', 'content-language', 'content-location']
@@ -277,11 +302,11 @@ export function installNodeFetch(options: InstallOptions = {}): () => void {
     : proxy
   if (!worker && mode === 'auto' && routed === undefined && nativeFetchUsable()) return () => {}
   const hosts = new Set(options.idempotencyHosts ?? [])
-  const extraHeaders = (url: URL, viaProxy: boolean): Record<string, string> | undefined => {
-    const store = (globalThis as { [TOOL_CALL_CONTEXT_KEY]?: ToolCallStore })[TOOL_CALL_CONTEXT_KEY]?.getStore()
-    if (store === undefined) return undefined
+  const extraHeaders = (url: URL, viaProxy: boolean, key?: string): Record<string, string> | undefined => {
+    const resolved = key ?? ambientToolKey()
+    if (resolved === undefined) return undefined
     if (!viaProxy && !isLoopback(url) && !hosts.has(url.hostname)) return undefined
-    return { 'x-pdsh-idempotency-key': store.key }
+    return { 'x-pdsh-idempotency-key': resolved }
   }
   const proxyFetch = options.proxyFetch
     ?? (worker && routed !== undefined && previousFetch !== undefined ? previousFetch.bind(globalThis) : undefined)
@@ -351,7 +376,7 @@ function unavailableFetch(): typeof fetch {
 function hostRouteFetch(
   proxy: HostProxyOptions,
   underlying: typeof fetch,
-  extraHeaders: (url: URL, viaProxy: boolean) => Record<string, string> | undefined,
+  extraHeaders: (url: URL, viaProxy: boolean, key?: string) => Record<string, string> | undefined,
   fallback: typeof fetch,
   deliveryIdleTimeoutMs: number,
 ): typeof fetch {
@@ -362,6 +387,8 @@ function hostRouteFetch(
   const matches = proxy.match ?? (() => true)
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init)
+    // Read the journal context before any await (call-context.ts).
+    const ambientKey = ambientToolKey()
     const signal = request.signal
     let url = new URL(request.url)
     // A request already addressed to the host route (the Worker `curl` shim
@@ -379,7 +406,8 @@ function hostRouteFetch(
     // the gateway to connect back to itself. Keep the tool journal identity.
     if (url.origin === proxyUrl.origin && url.pathname === '/mcp/native') {
       const headers = new Headers(request.headers)
-      const extra = extraHeaders(url, false)
+      const bytes = request.body === null ? undefined : new Uint8Array(await request.clone().arrayBuffer())
+      const extra = extraHeaders(url, false, correlatedMcpKey(bytes) ?? ambientKey)
       if (extra !== undefined) for (const [name, value] of Object.entries(extra)) headers.set(name, value)
       return await underlying(new Request(request, { headers }))
     }
@@ -387,6 +415,7 @@ function hostRouteFetch(
     let method = request.method
     const headers = new Headers(request.headers)
     let body: Uint8Array | undefined = request.body === null ? undefined : new Uint8Array(await request.arrayBuffer())
+    const callKey = correlatedMcpKey(body) ?? ambientKey
 
     // One attempt at the host /v1/http route. A resume attempt is the same
     // request plus the byte offset the Worker already delivered, so the host
@@ -403,7 +432,7 @@ function hostRouteFetch(
       outgoing.set('x-pdsh-target-url', url.href)
       outgoing.set('x-pdsh-target-method', method)
       outgoing.set('authorization', `Bearer ${proxy.token}`)
-      const extra = extraHeaders(url, true)
+      const extra = extraHeaders(url, true, callKey)
       if (extra !== undefined) for (const [name, value] of Object.entries(extra)) outgoing.set(name, value)
       if (resumeFrom !== undefined) outgoing.set(RESUME_FROM_HEADER, String(resumeFrom))
       const controller = new AbortController()

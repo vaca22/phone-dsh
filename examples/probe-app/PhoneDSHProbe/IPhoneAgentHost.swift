@@ -7,7 +7,16 @@
 import Foundation
 import OSLog
 import PhoneDSHBLE
+import PhoneDSHLoopback
 import PhoneDSHVenus
+
+/// The app's one native MCP endpoint: `iphone_agent_run` in front of the BLE tools (which fall
+/// through to ADB). Both the Worker's direct `/mcp/native` and the Bot listener's forwarder use this
+/// same instance, so one receipt store and one in-flight task guard serve every caller.
+@MainActor enum PhoneNativeMCP {
+    static let server: any NativeMCPServing = IPhoneAgentMCPServer(
+        fallback: DeviceMCPServer.shared, executor: IPhoneAgentHost.shared)
+}
 
 @MainActor final class IPhoneAgentHost: IPhoneAgentDevice, IPhoneAgentTaskExecuting {
     static let shared = IPhoneAgentHost()

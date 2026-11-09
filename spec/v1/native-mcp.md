@@ -6,6 +6,15 @@ binary channel frames. `PDSH_PHONE_MCP_URL` and `PDSH_PHONE_MCP_TOKEN` select
 the existing official `mcp-phone` Worker plugin. Only this exact same-origin
 path bypasses `/v1/http`; authorization and `X-PDSH-Idempotency-Key` are preserved.
 
+The Worker transport (`llm-bridge`) attaches `X-PDSH-Idempotency-Key` to a JSON-RPC
+`tools/call` by exact correlation: while the tool journal runs an
+`mcp__<server>__<tool>` call it registers that call's key, tool name and canonical
+arguments (`exec-bridge` `call-context.ts`), and the transport sends the key of the
+single matching registration. No match or several matches fall back to the ambient
+tool-call context read before the transport's first await. This does not depend on
+the Worker's AsyncLocalStorage surviving the MCP SDK's own awaits, which it does not
+guarantee. The key's meaning and the endpoint's checks are unchanged.
+
 The native environment has one owner. When the App runs the Bot runtime, the Bot
 MCP listener is the Worker's only `phone` server and `PhoneDSHHost` must keep the
 App-supplied Bot URL instead of replacing it with `/mcp/native`. The Bot server
@@ -121,6 +130,10 @@ the stored result, a different task under the same key is `idempotency_conflict`
 interrupted run is `outcome_unknown` and is never replayed. One task runs at a time.
 `initialize` appends the tool's usage note to `instructions`; `serverInfo` is unchanged.
 LED and other board tools stay on `ble_link_call` (BLE Link profile).
+
+With the Bot runtime the Bot listener forwards `iphone_agent_run` like every other native
+tool, to the same server instance (`PhoneNativeMCP.server`), so both paths share one receipt
+store and one in-flight guard.
 
 Status: implemented by `Sources/PhoneDSHVenus/IPhoneAgentMCPServer.swift`, verified by
 `IPhoneAgentMCPTests`; the Android host does not serve it.

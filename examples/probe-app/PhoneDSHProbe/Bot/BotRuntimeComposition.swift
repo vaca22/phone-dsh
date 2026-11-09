@@ -243,7 +243,9 @@ final class BotRuntimeComposition {
             // muxes the BLE tools and falls through to ADB; the E2E build has
             // no PhoneDSHBLE product, so it keeps the ADB-only endpoint.
             #if canImport(PhoneDSHADB) && canImport(PhoneDSHLoopback)
-            #if canImport(PhoneDSHBLE)
+            #if canImport(PhoneDSHBLE) && canImport(PhoneDSHVenus)
+            await attachNativeMCP(PhoneNativeMCP.server)
+            #elseif canImport(PhoneDSHBLE)
             await attachNativeMCP(DeviceMCPServer.shared)
             #else
             await attachNativeMCP(ADBMCPServer.shared)

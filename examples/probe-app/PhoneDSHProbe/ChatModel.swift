@@ -1031,7 +1031,7 @@ final class ChatModel {
         observeHost(launch.host)
         do {
             try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
-            await botLaunch?.composition.attachNativeMCP(DeviceMCPServer.shared)
+            await botLaunch?.composition.attachNativeMCP(PhoneNativeMCP.server)
             try await launch.host.start()
         } catch {
             Self.appendDiagnostic("host start failed: \(error)")
@@ -1163,7 +1163,7 @@ final class ChatModel {
             workerEnvironment: environment.merging(botLaunch?.workerEnvironment ?? [:]) { _, new in new },
             // iphone_agent_run (UI-Venus over the TonoLink board) in front of the BLE tools, so one
             // native endpoint serves the phone task and Link tools such as light.set (native-mcp.md).
-            nativeMCP: IPhoneAgentMCPServer(fallback: DeviceMCPServer.shared, executor: IPhoneAgentHost.shared))
+            nativeMCP: PhoneNativeMCP.server)
         configuration.officialDeepSeekWebCredentialProvider = searchPlan.officialDeepSeekWebCredentialProvider
         // One line states what the host actually enforces. The Worker's
         // published manifest can lag behind a rebuilt bundle; this is the
@@ -1269,7 +1269,7 @@ final class ChatModel {
         do {
             do {
                 try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
-                await botLaunch?.composition.attachNativeMCP(DeviceMCPServer.shared)
+                await botLaunch?.composition.attachNativeMCP(PhoneNativeMCP.server)
                 try await launch.host.start()
             } catch {
                 let state = await launch.host.state
