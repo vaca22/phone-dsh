@@ -77,7 +77,19 @@ import PhoneDSHVenus
         screen.start()
         try await hands.ensureHID()
         if screen.currentStats.decodedFrames > 0, (try? await screen.snapshot()) != nil { return }
-        // No picture yet: start mirroring to the board ourselves, then wait for the first frames.
+        // A viewer that just connected gets the board's cached GOP within a moment; wait for it
+        // instead of assuming mirroring is off.
+        let warmup = ContinuousClock.now + .seconds(4)
+        while ContinuousClock.now < warmup {
+            if (try? await screen.snapshot()) != nil { return }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        // Mirroring is on but no picture yet: never touch Control Center, since the mirroring
+        // control there is a toggle and tapping it would end the session.
+        if await hands.mirrorActive() {
+            throw IPhoneAgentError("板子在接收镜像但还没有画面（\(screen.currentStats.status)），请稍后重试")
+        }
+        // No mirror session: start mirroring to the board ourselves, then wait for the first frames.
         try await hands.startMirroring()
         let deadline = ContinuousClock.now + .seconds(10)
         while ContinuousClock.now < deadline {

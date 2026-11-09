@@ -249,5 +249,12 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
     }
 
     /// Makes the board's USB network and AirPlay receiver come up (they are RAM-only on the board).
+    /// True when the board reports an active AirPlay mirror session (`/v1/phone/status`, read-only).
+    public func mirrorActive() async -> Bool {
+        guard let status = try? await call("GET", "/v1/phone/status", timeout: 5),
+              let airplay = status["airplay"] as? [String: Any] else { return false }
+        return airplay["mirror_active"] as? Bool == true
+    }
+
     public func enableUSB() async throws { try await call("POST", "/v1/usb", ["action": "enable"], timeout: 10) }
 }

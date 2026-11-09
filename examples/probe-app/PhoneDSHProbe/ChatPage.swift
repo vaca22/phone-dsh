@@ -1348,6 +1348,12 @@ struct ChatPage: View {
     /// screen) and the next streamed delta snaps it back (the visible jump).
     /// Debouncing by one short turn lets the height preference and the row
     /// frames settle, and the coalesced follow still tracks streaming.
+    /// Whole points for the scroll trace. `Int(_:)` traps on NaN or infinity, which a geometry value
+    /// can be before layout settles; the trace must never crash a streaming turn.
+    static func traceValue(_ value: CGFloat) -> String {
+        value.isFinite && abs(value) < 1e12 ? String(Int(value.rounded())) : String(describing: value)
+    }
+
     private func scheduleTailScroll(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
         guard followsTail else { return }
         tailScrollTask?.cancel()
@@ -1357,8 +1363,8 @@ struct ChatPage: View {
             if Date().timeIntervalSince(lastScrollTrace) > 1 {
                 lastScrollTrace = Date()
                 ChatModel.appendDiagnostic(
-                    "scroll tail content=\(Int(transcriptContentHeight)) viewport=\(Int(viewportHeight)) "
-                    + "tail=\(Int(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
+                    "scroll tail content=\(Self.traceValue(transcriptContentHeight)) viewport=\(Self.traceValue(viewportHeight)) "
+                    + "tail=\(Self.traceValue(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
             }
             scrollToTail(proxy, viewportHeight: viewportHeight)
         }
