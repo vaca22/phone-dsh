@@ -362,6 +362,65 @@ test('native MCP stays on the authenticated origin and keeps tool idempotency', 
 let deliveryProbe = 0
 
 /** Installs the Worker host route over a fake platform fetch for one test. */
+test('MCP tools/call carries its own journal key even when the ambient context is wrong or missing', async () => {
+  const { registerMcpCall } = await import('../exec-bridge/src/call-context.ts')
+  const contextKey = Symbol.for('phone-dsh.dsh.tool-call-context')
+  const scope = globalThis as unknown as Record<symbol, unknown>
+  const previous = scope[contextKey]
+  let ambient: { key: string } | undefined = { key: 'unrelated-call' }
+  scope[contextKey] = { getStore: () => ambient }
+  const seen: Request[] = []
+  const fake = (async (input, init) => {
+    seen.push(new Request(input, init))
+    return new Response('{}', { headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  const call = (name: string, args: unknown) => JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name, arguments: args } })
+  const release = registerMcpCall('mcp__phone__ble_link_call', { device_id: 'd', name: 'light.set', args: { on: true } }, 'light-on-once')
+  try {
+    await withWorkerHostRoute(fake, 1000, async () => {
+      // Bot MCP listener: a loopback URL routed through the host /v1/http hop.
+      await fetch('http://127.0.0.1:55001/mcp', { method: 'POST', body: call('ble_link_call', { args: { on: true }, name: 'light.set', device_id: 'd' }) })
+      assert.equal(seen[0]?.headers.get('x-pdsh-target-url'), 'http://127.0.0.1:55001/mcp')
+      assert.equal(seen[0]?.headers.get('x-pdsh-idempotency-key'), 'light-on-once')
+      // Same-origin native endpoint, and no ambient context at all.
+      ambient = undefined
+      await fetch('http://127.0.0.1:9/mcp/native', { method: 'POST', body: call('ble_link_call', { device_id: 'd', name: 'light.set', args: { on: true } }) })
+      assert.equal(seen[1]?.url, 'http://127.0.0.1:9/mcp/native')
+      assert.equal(seen[1]?.headers.get('x-pdsh-idempotency-key'), 'light-on-once')
+      // Different arguments do not borrow the key; nothing is attached.
+      await fetch('http://127.0.0.1:9/mcp/native', { method: 'POST', body: call('ble_link_call', { device_id: 'd', name: 'light.set', args: { on: false } }) })
+      assert.equal(seen[2]?.headers.has('x-pdsh-idempotency-key'), false)
+      // Two in-flight calls with identical arguments are ambiguous: fail closed to the ambient context.
+      const twin = registerMcpCall('mcp__phone__ble_link_call', { device_id: 'd', name: 'light.set', args: { on: true } }, 'light-on-twin')
+      ambient = { key: 'ambient-only' }
+      await fetch('http://127.0.0.1:9/mcp/native', { method: 'POST', body: call('ble_link_call', { device_id: 'd', name: 'light.set', args: { on: true } }) })
+      assert.equal(seen[3]?.headers.get('x-pdsh-idempotency-key'), 'ambient-only')
+      twin()
+      // A body that is not tools/call keeps the ambient behaviour.
+      await fetch('http://127.0.0.1:9/mcp/native', { method: 'POST', body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' })
+      assert.equal(seen[4]?.headers.get('x-pdsh-idempotency-key'), 'ambient-only')
+    })
+  } finally {
+    release()
+    if (previous === undefined) delete scope[contextKey]
+    else scope[contextKey] = previous
+  }
+})
+
+test('registerMcpCall parses only mcp__<server>__<tool> names and releases its entry', async () => {
+  const { mcpCallKey, registerMcpCall } = await import('../exec-bridge/src/call-context.ts')
+  const release = registerMcpCall('mcp__phone__iphone_agent_run', { task: '打开设置' }, 'k1')
+  assert.equal(mcpCallKey('iphone_agent_run', { task: '打开设置' }), 'k1')
+  assert.equal(mcpCallKey('iphone_agent_run', { task: 'other' }), undefined)
+  release()
+  assert.equal(mcpCallKey('iphone_agent_run', { task: '打开设置' }), undefined)
+  for (const name of ['bash', 'mcp__phone', 'mcp____x', 'phone__x']) {
+    registerMcpCall(name, {}, 'k2')()
+    assert.equal(mcpCallKey(name.split('__').pop() ?? '', {}), undefined)
+  }
+  assert.doesNotThrow(() => registerMcpCall('mcp__phone__x', {}, '')())
+})
+
 async function withWorkerHostRoute<T>(
   fake: typeof fetch,
   idleMs: number,

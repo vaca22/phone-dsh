@@ -2,7 +2,7 @@
 
 ```yaml
 change: PC-20261109-tonolink-phone-agent
-contracts: [P05, P07, P08, P09, P12]
+contracts: [P03, P05, P07, P08, P09, P12]
 status: implemented
 breaking: false
 version_decision: Additive. One new native MCP tool name (iphone_agent_run) listed after the BLE tools, one new SwiftPM library (PhoneDSHVenus), one registered existing device boundary (TonoLink board HTTP/APV1/GATT, consumer only). No existing tool, field, error code, header, UserDefaults key or persisted format changes.
@@ -10,7 +10,7 @@ base: 3781dbdc
 contract_revision: spec/device/v1/tonolink-board.md + spec/v1/native-mcp.md#iphone-agent-tool-implemented-on-ios @ this PR head
 ```
 
-Protocol impact: P05; P07; P08; P09; P12. P05 — 新增 additive native MCP 工具 `iphone_agent_run`。P07 — 登記既有 TonoLink 板子邊界（USB NCM HTTP、APV1 螢幕流、ctrl GATT），LED 走既有 BLE Link profile，不改 Link wire。P08 — keep-alive 在 AVAudioEngine 配置／路由變更時恢復渲染，並成為單一具名 owner 實例。P09 — 設定頁新增「視覺模型」入口與 DEBUG「板子固件（USB）」入口。P12 — `Package.swift` 新增 `PhoneDSHVenus` library，不動 FFI／C ABI。
+Protocol impact: P03; P05; P07; P08; P09; P12. P03 — tool journal 在 MCP 呼叫期間登記其 idempotency key 供傳輸關聯（rev 2）。 P05 — 新增 additive native MCP 工具 `iphone_agent_run`。P07 — 登記既有 TonoLink 板子邊界（USB NCM HTTP、APV1 螢幕流、ctrl GATT），LED 走既有 BLE Link profile，不改 Link wire。P08 — keep-alive 在 AVAudioEngine 配置／路由變更時恢復渲染，並成為單一具名 owner 實例。P09 — 設定頁新增「視覺模型」入口與 DEBUG「板子固件（USB）」入口。P12 — `Package.swift` 新增 `PhoneDSHVenus` library，不動 FFI／C ABI。
 
 ## 1. 識別與角色
 
@@ -54,3 +54,4 @@ Protocol impact: P05; P07; P08; P09; P12. P05 — 新增 additive native MCP 工
 | revision | 由誰 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
 | 1 | Claude | 初版 | iOS consumer（本 PR）；韌體不變 |
+| 2 | Claude | 裝置驗證發現：Chat 經 Bot listener 呼叫 `ble_link_call`／原生工具一律缺 `X-PDSH-Idempotency-Key`（Worker 的 AsyncLocalStorage 在 MCP SDK 自身 await 後不可靠；`llm-bridge` 也在自己的 await 之後才讀）。改為 `tools/call` 依 tool journal 登記的（工具名、canonical 參數）精確關聯取 key，歧義則退回 await 前讀到的環境 context；另修 Bot 路徑未接上 `iphone_agent_run`（`PhoneNativeMCP.server` 單例）。key 語義與端點檢查不變。 | Worker（llm-bridge、tool-journal、exec-bridge call-context）；iOS app 接線 |

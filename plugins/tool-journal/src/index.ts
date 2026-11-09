@@ -36,7 +36,7 @@ import type { ToolDefinition, ToolExecutionResult } from '@deepseek-ai/dsh-tools
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session'
 import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
-import { toolCallStorage } from '@phone-dsh/dsh-exec-bridge/call-context'
+import { registerMcpCall, toolCallStorage } from '@phone-dsh/dsh-exec-bridge/call-context'
 import { createClassifier } from './classify.ts'
 import { withResolvers } from './deferred.ts'
 import type { ToolClass } from './classify.ts'
@@ -405,7 +405,17 @@ export class ToolJournal extends Service {
       // carries both the session cancel and the host teardown cancel.
       exec.signal = fuseAbortSignals(exec.signal, this.hostCancellation.signal)
       injectFault('after-start')
-      const body = toolCallStorage().run({ sessionId, callId: exec.callId, key, spawns: 0 }, next)
+      // MCP calls also carry the key by correlation: the Worker's ALS may not
+      // survive the SDK transport's own awaits (call-context.ts).
+      const releaseMcpKey = registerMcpCall(exec.name, exec.arguments, key)
+      let body: Promise<ToolExecutionResult>
+      try {
+        body = Promise.resolve(toolCallStorage().run({ sessionId, callId: exec.callId, key, spawns: 0 }, next))
+      } catch (error) {
+        releaseMcpKey()
+        throw error
+      }
+      void body.then(releaseMcpKey, releaseMcpKey)
       const outcome = await settleOrAbort(body, exec.signal, config.abortSettleMs ?? 500)
       if (outcome.kind === 'rejected') throw outcome.error
       // Once the caller signal is aborted the call's outcome is a
