@@ -416,6 +416,10 @@ targets:
         product: PhoneDSHBLE
       - package: PhoneDSH
         product: PhoneDSHShell
+      # PCLink D2: `PCLinkWorkspace.swift` is compiled into this target, so its
+      # module must be linked here as well; the simulator twin already does.
+      - package: PhoneDSH
+        product: PhoneDSHPCLink
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.probe.devicetests

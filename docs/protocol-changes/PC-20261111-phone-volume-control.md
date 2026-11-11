@@ -76,9 +76,11 @@ Commands → result:
 - `xcrun devicectl device install app --device 00008160-00023D1C2240000A /Users/macbook/Library/Developer/Xcode/DerivedData/PhoneDSHProbe-alqzbsreltgljaewqoctxbcaoouf/Build/Products/Debug-iphoneos/PhoneDSHProbe.app` → PASS; `xcrun devicectl device process launch --device 00008160-00023D1C2240000A --terminate-existing com.tono.phonedsh.probe` → PASS.
 - Device log evidence: after the refreshed image, a voice task reached UI-Venus and returned the Bluetooth HID-not-connected limitation; the prior `unknown tool` result was not repeated. No volume command was issued.
 
-Not verified: the physical volume slider was not moved; the MCP tool was observed running a different voice UI task and returning the missing-HID limitation.
+Not verified: the physical volume slider was not moved by this MCP/UI task path; the MCP tool was observed running a different voice UI task and returning the missing-HID limitation.
 
-Remaining risks: connect the PhoneAgent board's Bluetooth HID keyboard/mouse to the iPhone before using voice volume control; then UI-Venus must still confirm the slider in a fresh screenshot.
+Revision 3 runtime evidence (2026-11-11, iPhone `00008160-00023D1C2240000A`, iOS 27.2, board `PhoneAgent-7356`): the local voice volume path was exercised on the device through the real `TonoLinkVoiceHost` command path. The Consumer Control key changed the iPhone's media output volume (0.55→0.50→0.55, two runs, 100 ms polls of the read-only `AVAudioSession.outputVolume`), and the board accepted both one-step `{"op":"consumer"}` batches with HTTP 200. Details and the independent device log lines are in `docs/handoffs/2026-11-11-tonolink-voice-and-keyboard.md` §“真机核验”. The MCP/UI-Venus slider path described above remains unverified; this evidence covers the local HID path in `PC-20261111-xiaozhi-volume-hid`.
+
+Remaining risks: the voice path reads `outputVolume` once 250 ms after the key and can therefore report “no observed change” for a key that did land; a control action that starts within ~1 s of a HID detach needs one visibility cycle before the board reports consumer control ready.
 
 ## 6. Revision record
 
@@ -86,3 +88,4 @@ Remaining risks: connect the PhoneAgent board's Bluetooth HID keyboard/mouse to 
 | --- | --- | --- | --- |
 | 1 | Coordinator | Frozen volume task semantics and shared examples before implementation. | iOS native MCP consumer; spec/checker |
 | 2 | Coordinator | Recorded implementation and observed MCP reachability; actual volume action remains pending the board HID connection. | iOS native MCP consumer; Worker MCP client; device user |
+| 3 | Coordinator | Added physical-device evidence for the local voice volume path (real output-volume change) and the HID visibility-cycle recovery; no contract, schema, fixture or version change. | P05 iOS host; P07 iOS consumer and firmware producer; device user |

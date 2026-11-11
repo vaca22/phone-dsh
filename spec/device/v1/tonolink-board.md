@@ -1,6 +1,6 @@
 # TonoLink board phone-control interface, v1
 
-Status: `partial` (consumer-control volume support is implemented on both ends; iPhone and board runtime evidence pending). Owner: P07.
+Status: `implemented` for the channels below, including consumer-control volume on both ends (real iPhone and board runtime evidence recorded 2026-11-11; old-firmware rejection is covered by firmware host tests only, no downgrade flash). Owner: P07.
 
 A TonoLink board (`tonolink.m21r4`, firmware `agent_s3`) plugs into an iPhone's
 USB-C port. It is the phone's **hands** (Bluetooth HID keyboard and absolute mouse)

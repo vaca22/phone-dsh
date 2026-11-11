@@ -3,7 +3,7 @@
 ```yaml
 change: PC-20261111-xiaozhi-volume-hid
 contracts: [P07]
-status: frozen
+status: implemented
 breaking: false
 version_decision: Add a closed consumer-control step to the existing TonoLink /v1/hid/batch contract; retain API v1 and reject it on old firmware before any HID output.
 base: 3d1c9ef08da9e553a31421e08256fe9b768358c9
@@ -77,6 +77,7 @@ Compatibility matrix:
 | --- | --- | --- | --- |
 | consumer-control-volume-v1 | Coordinator | Frozen standard Consumer Control report and additive batch operation before either end implementation. | Firmware producer; iOS consumer |
 | consumer-control-volume-v1-gatt-layout-v5 | Coordinator | Real OTA attempt showed iOS BLE write error `Writing is not permitted.` after the HID report map gained a characteristic while the local GATT layout revision remained 4. Freeze the requirement to advance the local revision and send a Service Changed indication so the iPhone drops stale handles, including after rollback. | Firmware producer; iOS CoreBluetooth consumer |
+| consumer-control-volume-v1-runtime | Coordinator | Physical-device evidence closed the contract's `partial` status: `hid.consumer_control` becomes true within ~1 s of enable and a single consumer step changes the iPhone's media volume both ways (0.55→0.50→0.55). The consumer also forces one visibility cycle when a show coalesces with a preceding hide. No normative clause, schema, golden or version change. | Firmware producer; iOS consumer; device user |
 
 ### Follow-on contract freeze: GATT cache invalidation
 
@@ -108,6 +109,14 @@ Commands → result:
   xcodebuild ... -scheme PhoneDSHProbe ... build → PASS
   xcrun devicectl device install app ... → PASS
   phone-spec → PASS; phone-cross-tree → PASS; phone-p0-conformance → FAIL (7 unrelated settings/session page-structure divergences)
-Not verified: actual BLE Consumer Control delivery to this iPhone, volume up/down, old-firmware rejection on hardware.
-Remaining risk: although OTA completed and capability status is present, a real volume step still needs verification on the phone.
+Not verified (at the original handoff): actual BLE Consumer Control delivery to this iPhone, volume up/down, old-firmware rejection on hardware.
+Remaining risk (at the original handoff): although OTA completed and capability status is present, a real volume step still needs verification on the phone.
+
+Revision 2 runtime evidence (2026-11-11, iPhone `00008160-00023D1C2240000A` iOS 27.2, board `PhoneAgent-7356`, firmware `67e723f`):
+- `GET /v1/phone/status` reports `hid.consumer_control=true` within ~1 s of `{"on":true}` and stays stable for 20 s; `/v1/info` reports `slot:"ota_0"`, `version:"0.1.0-m21"`, `features` containing `hid`.
+- One `{"op":"consumer","key":"volume_down"}` changed the iPhone's media volume 0.55→0.50 and one `volume_up` changed it 0.50→0.55 (100 ms polling of the read-only `AVAudioSession.outputVolume`, two independent runs; KVO proved unreliable). This is the iPhone + board runtime evidence the contract's status line was waiting for.
+- The consumer now also survives a coalesced hide→show: when `disableHID()` is followed within ~0.2 s by `ensureVolumeHID()`, the board reports `input_mode:true` with every subscription false for 15 s because the host never re-reads the Report Map and the firmware treats a repeated enable as a no-op. `TonoLinkPhoneHands` forces one `{"on":false}`→`{"on":true}` visibility cycle after 3 s, which restores the subscription; the device suite re-ran green (2 tests / 0 failures / 26 s).
+- Not verified on hardware: old-firmware rejection (no rev-4 image was flashed; the parser-level 400 `bad_request` and the app's stop-before-batch guard are covered by firmware host tests and a new fake-HTTP unit test).
+- The voice path still reads `outputVolume` once after 250 ms and can report “no observed change” for a key that landed; see the handoff §“真机核验” §3.
+- Status of this change and of the owning contract moved to `implemented`; no normative clause, schema, golden or version changed.
 ```

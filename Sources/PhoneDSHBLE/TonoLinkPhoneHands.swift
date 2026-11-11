@@ -101,6 +101,7 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
     public func ensureHID(timeout: Duration = .seconds(15)) async throws {
         let clock = ContinuousClock(), deadline = clock.now + timeout
         var enabledAt: ContinuousClock.Instant?
+        var cycledAt: ContinuousClock.Instant?
         while clock.now < deadline {
             if let status = try? await call("GET", "/v1/phone/status", timeout: 5), let hid = status["hid"] as? [String: Any],
                hid["keyboard"] as? Bool == true, hid["absolute"] as? Bool == true, hid["input_mode"] as? Bool == true {
@@ -111,6 +112,7 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
                 }
                 return
             }
+            if await cycleIfStuck(clock: clock, enabledAt: &enabledAt, cycledAt: &cycledAt) { continue }
             if enabledAt.map({ clock.now - $0 > .seconds(6) }) ?? true {
                 _ = try? await call("POST", "/v1/hid/enable", ["on": true], timeout: 8)
                 enabledAt = clock.now
@@ -120,11 +122,30 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
         throw TonoLinkHandsError("手机还没有接上板子的键盘和鼠标（蓝牙 HID）")
     }
 
+    /// A `{"on":true}` sent immediately after a hide may be coalesced with that hide by the host:
+    /// the service is visible again, but iOS never re-reads the Report Map, so no report
+    /// subscription comes back and the board reports `input_mode:true` with every subscription
+    /// false. The board treats a repeated enable as a no-op, so only a new visibility change
+    /// recovers it. These are desired-state requests (tonolink-board.md §2), not HID steps:
+    /// repeating them replays no key or pointer action. One cycle every few seconds at most.
+    private func cycleIfStuck(clock: ContinuousClock, enabledAt: inout ContinuousClock.Instant?,
+                              cycledAt: inout ContinuousClock.Instant?) async -> Bool {
+        guard let enabled = enabledAt, clock.now - enabled > .seconds(3),
+              cycledAt.map({ clock.now - $0 > .seconds(3) }) ?? true else { return false }
+        cycledAt = clock.now
+        _ = try? await call("POST", "/v1/hid/enable", ["on": false], timeout: 8)
+        try? await Task.sleep(for: .milliseconds(500))
+        _ = try? await call("POST", "/v1/hid/enable", ["on": true], timeout: 8)
+        enabledAt = clock.now
+        return true
+    }
+
     /// Waits for the Consumer Control report needed by direct voice volume commands. Older board
     /// firmware omits this status field and rejects the corresponding batch step before output.
     public func ensureVolumeHID(timeout: Duration = .seconds(15)) async throws {
         let clock = ContinuousClock(), deadline = clock.now + timeout
         var enabledAt: ContinuousClock.Instant?
+        var cycledAt: ContinuousClock.Instant?
         while clock.now < deadline {
             if let status = try? await call("GET", "/v1/phone/status", timeout: 5),
                let hid = status["hid"] as? [String: Any] {
@@ -133,6 +154,7 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
                 }
                 if hid["consumer_control"] as? Bool == true, hid["input_mode"] as? Bool == true { return }
             }
+            if await cycleIfStuck(clock: clock, enabledAt: &enabledAt, cycledAt: &cycledAt) { continue }
             if enabledAt.map({ clock.now - $0 > .seconds(6) }) ?? true {
                 _ = try? await call("POST", "/v1/hid/enable", ["on": true], timeout: 8)
                 enabledAt = clock.now

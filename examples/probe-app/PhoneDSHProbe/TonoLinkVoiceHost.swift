@@ -473,6 +473,14 @@ import ProbeKit
         }
         return result
     }
+
+    /// Hosted device tests call the same local command path the voice turn uses, without ASR.
+    func debugAnswer(_ text: String) async -> [String: Any] {
+        guard let credential = await credential() else { return ["error": "no cloud credential", "heard": text] }
+        lastTurn = ["source": "debug answer", "heard": text, "at": ISO8601DateFormatter().string(from: Date())]
+        await answer(text, credential: credential, start: Date())
+        return ["heard": text, "last_turn": lastTurn]
+    }
     #endif
 }
 
