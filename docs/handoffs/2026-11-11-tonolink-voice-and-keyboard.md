@@ -86,6 +86,9 @@
 Base:
   phone-dsh  3d1c9ef08da9e553a31421e08256fe9b768358c9
   firmware  59fe866a3398d2001dc6a79065381b36828d721
+Implementation commit:
+  phone-dsh  8edb4f35bbcdd5b1ceab59f497705945bf3bb26d
+  firmware  67e723f8460736516d8fffa03fa471e20e3426a1
 Protocol impact: P05; P07; P09: none — no page projection/structure change; P08: none — outputVolume is read only
 Contract revision:
   P05 spec/v1/native-mcp.md + spec/v1/golden/native-mcp/iphone-agent-volume-policy.json
@@ -107,8 +110,9 @@ Remaining risks: keyboard recovery is best-effort HID detachment until the real 
 ```text
 phone-dsh:  branch codex/tonolink-volume-voice-keyboard-handoff
             base 3d1c9ef08da9e553a31421e08256fe9b768358c9
-            commit/push: 待记录
+            implementation commit 8edb4f35bbcdd5b1ceab59f497705945bf3bb26d; pushed to `vaca22`.
+            This handoff update is a follow-up commit on the same branch.
 firmware:    branch codex/tonolink-volume-voice-keyboard-handoff
-            base 59fe866a3398d2001dc6a79065381b36828e721
-            commit/push: 待记录
+            base 59fe866a3398d2001dc6a79065381b36828d721
+            commit 67e723f8460736516d8fffa03fa471e20e3426a1; pushed to `origin`.
 ```
