@@ -111,7 +111,11 @@ The same endpoint may additionally list `iphone_agent_run`, after the BLE tools.
 additive; older servers do not advertise it. Input is `{"task": string}` (1–8192 UTF-8
 bytes, no other keys). It runs one UI-Venus task on this iPhone through a TonoLink
 board ([tonolink-board.md](../device/v1/tonolink-board.md)) and returns the model's
-answer, `finished`, the executed steps and seconds as JSON text. `isError` is true with
+answer, `finished`, the executed steps and seconds as JSON text. These diagnostic fields
+remain available to the tool consumer but are not user-facing task summary material. After a
+task, the calling model must report the answer or concrete blocker in one short sentence;
+omit step counts, durations, `finished`, model self-assessment and UI navigation details.
+`isError` is true with
 `status` `invalid_arguments`, `journal_key_required`, `idempotency_conflict`, `busy`,
 `outcome_unknown`, `timeout_outcome_unknown` or `cancelled_outcome_unknown`, always with `automatic_retry: false`.
 
@@ -132,6 +136,28 @@ A UI task routinely runs longer than a minute; over the Bot listener a call stil
 
 Status: implemented by `Sources/PhoneDSHVenus/IPhoneAgentMCPServer.swift`, verified by
 `IPhoneAgentMCPTests`; the Android host does not serve it.
+
+### Current output-volume tasks
+
+For an `iphone_agent_run` task that says only “phone volume”, the target is the
+current media/output volume in iOS Control Center. “Turn it up/down a little”
+means one modest change, approximately 10 percentage points of the visible
+slider range. A requested percentage is an approximate slider target; “mute”
+means move this slider to 0% and does not toggle Silent mode or change ringer
+and alert volume. Do not substitute the media slider for an explicit request to
+change ringer/alert volume or Silent mode; clarify the requested control.
+
+The task uses the existing UI-Venus screenshot and TonoLink screen/HID path to
+operate the visible system slider. It must inspect a fresh screenshot before
+acting and request another screenshot after the gesture. Report completion only
+when that screenshot visibly confirms the target; if the phone is locked, the
+control is unavailable, or the result is unclear, ask the user or report the
+limitation. Do not use private system-volume APIs. An uncertain adjustment is
+not replayed, under the existing receipt and `automatic_retry: false` rules.
+The MCP method, tool name, input/output shape, errors, deadline and receipt
+semantics remain unchanged.
+Shared task and invalid-argument examples are in
+[`golden/native-mcp/iphone-agent-volume-policy.json`](golden/native-mcp/iphone-agent-volume-policy.json).
 
 ## MCP egress capability (phoneDSH App/Worker)
 

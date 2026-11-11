@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phone-dsh.invalid/spec/device/v1/schema/tonolink-hid-consumer-step.schema.json",
+  "title": "TonoLink Consumer Control HID step",
+  "type": "object",
+  "properties": {
+    "op": { "const": "consumer" },
+    "key": { "enum": ["volume_up", "volume_down"] }
+  },
+  "required": ["op", "key"],
+  "additionalProperties": false
+}

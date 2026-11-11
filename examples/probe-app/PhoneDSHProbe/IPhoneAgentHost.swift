@@ -100,11 +100,15 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         Self.append("task: \(task)", to: folder)
         do {
             let result = try await agent.run(task)
+            do { try await hands.disableHID() }
+            catch { Self.append("hid detach failed: \(error.localizedDescription)", to: folder) }
             Self.append("result: \(result.answer) finished=\(result.finished) steps=\(result.steps.count) \(Int(result.seconds))s", to: folder)
             lastResult = ["task": task, "answer": result.answer, "finished": result.finished, "steps": result.steps.count,
                           "seconds": Int(result.seconds), "run": folder.lastPathComponent]
             return result
         } catch {
+            do { try await hands.disableHID() }
+            catch { Self.append("hid detach failed: \(error.localizedDescription)", to: folder) }
             Self.append("error: \(error)", to: folder)
             lastResult = ["task": task, "error": "\(error)", "run": folder.lastPathComponent]
             throw error

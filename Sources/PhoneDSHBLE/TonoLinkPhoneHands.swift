@@ -18,9 +18,10 @@
 //   swallows the first click to show the pointer).
 import Foundation
 
-public struct TonoLinkHandsError: Error, CustomStringConvertible, Sendable {
+public struct TonoLinkHandsError: Error, CustomStringConvertible, LocalizedError, Sendable {
     public let description: String
     init(_ description: String) { self.description = description }
+    public var errorDescription: String? { description }
 }
 
 /// Screen positions (0–1000) of the AssistiveTouch button and its menu items on this phone.
@@ -92,7 +93,7 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
         }
     }
 
-    static func isBusy(_ error: TonoLinkHandsError) -> Bool {
+    nonisolated static func isBusy(_ error: TonoLinkHandsError) -> Bool {
         error.description.contains("HTTP 503") && error.description.contains("busy_exec")
     }
 
@@ -117,6 +118,45 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
             try await Task.sleep(for: .milliseconds(500))
         }
         throw TonoLinkHandsError("手机还没有接上板子的键盘和鼠标（蓝牙 HID）")
+    }
+
+    /// Waits for the Consumer Control report needed by direct voice volume commands. Older board
+    /// firmware omits this status field and rejects the corresponding batch step before output.
+    public func ensureVolumeHID(timeout: Duration = .seconds(15)) async throws {
+        let clock = ContinuousClock(), deadline = clock.now + timeout
+        var enabledAt: ContinuousClock.Instant?
+        while clock.now < deadline {
+            if let status = try? await call("GET", "/v1/phone/status", timeout: 5),
+               let hid = status["hid"] as? [String: Any] {
+                guard hid["consumer_control"] != nil else {
+                    throw TonoLinkHandsError("小智 Link 固件还不支持语音调音量，请更新 Link 固件后重新连接")
+                }
+                if hid["consumer_control"] as? Bool == true, hid["input_mode"] as? Bool == true { return }
+            }
+            if enabledAt.map({ clock.now - $0 > .seconds(6) }) ?? true {
+                _ = try? await call("POST", "/v1/hid/enable", ["on": true], timeout: 8)
+                enabledAt = clock.now
+            }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+        throw TonoLinkHandsError("小智 Link 的音量按键没有连上手机，请在蓝牙配件页重新连接小智 Link")
+    }
+
+    /// Hides the board's external keyboard and pointer after phone control so the iPhone can
+    /// present its software keyboard again. A later task reattaches HID through ensureHID().
+    public func disableHID() async throws {
+        _ = try await call("POST", "/v1/hid/enable", ["on": false], timeout: 8)
+    }
+
+    /// Emits one standard Consumer Control volume step. The result means firmware accepted the
+    /// reports; it does not by itself prove that iOS changed its output level.
+    public func adjustOutputVolume(_ direction: TonoLinkVolumeDirection) async throws {
+        try await ensureVolumeHID()
+        try await batch([Self.consumerVolumeStep(direction)])
+    }
+
+    nonisolated static func consumerVolumeStep(_ direction: TonoLinkVolumeDirection) -> [String: Any] {
+        ["op": "consumer", "key": direction == .up ? "volume_up" : "volume_down"]
     }
 
     // MARK: gestures

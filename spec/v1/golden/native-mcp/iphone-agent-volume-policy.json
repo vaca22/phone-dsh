@@ -1,0 +1,32 @@
+{
+  "tool": "iphone_agent_run",
+  "completion_guidance": "After a task, report the answer or concrete blocker in one short sentence. Omit step counts, durations, finished values, model self-assessment, and UI navigation details.",
+  "instructions": "For current output-volume requests, default to the media/output slider in iOS Control Center. ‘Turn it up/down a little’ means one modest step (about 10 percentage points); a requested percentage is an approximate slider target; ‘mute’ means 0% on this slider, not Silent mode or ringer/alert volume. For an explicit ringer/alert or Silent mode request, clarify the control. Use the visible slider through the existing screen/HID path: inspect a fresh screenshot before acting and request another after the gesture. Claim completion only if the new screenshot visibly confirms the target. If the phone is locked, the slider is unavailable, or the result is unclear, ask the user or report the limitation. Never use private volume APIs or replay an uncertain adjustment.",
+  "valid_tasks": [
+    "Please raise the current media/output volume a little using iOS Control Center, then verify it in a fresh screenshot.",
+    "Please set the current media/output volume to about 35% using iOS Control Center, then verify it in a fresh screenshot.",
+    "Please mute the current media/output volume by setting the Control Center slider to 0%, then verify it in a fresh screenshot."
+  ],
+  "invalid_arguments": [
+    {
+      "name": "missing task",
+      "arguments": {},
+      "expected_status": "invalid_arguments"
+    },
+    {
+      "name": "blank task",
+      "arguments": {"task": "  "},
+      "expected_status": "invalid_arguments"
+    },
+    {
+      "name": "unexpected argument",
+      "arguments": {"task": "raise the media volume", "session_id": "another-phone"},
+      "expected_status": "invalid_arguments"
+    },
+    {
+      "name": "task exceeds UTF-8 byte limit",
+      "task_utf8_bytes": 8193,
+      "expected_status": "invalid_arguments"
+    }
+  ]
+}

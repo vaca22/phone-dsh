@@ -28,6 +28,20 @@ private actor PhoneToolFallback: NativeMCPServing {
     }
 }
 
+private struct IPhoneAgentVolumeFixture: Decodable {
+    struct InvalidArguments: Decodable {
+        let name: String
+        let arguments: [String: String]?
+        let taskUtf8Bytes: Int?
+        let expectedStatus: String
+    }
+    let tool: String
+    let instructions: String
+    let completionGuidance: String
+    let validTasks: [String]
+    let invalidArguments: [InvalidArguments]
+}
+
 @MainActor final class IPhoneAgentMCPTests: XCTestCase {
     private var directory: URL!
     override func setUp() async throws {
@@ -51,6 +65,14 @@ private actor PhoneToolFallback: NativeMCPServing {
         let text = try XCTUnwrap(try root(response)["result"]?["content"]?.arrayValue?.first?["text"]?.stringValue)
         return try JSONValue.parse(Data(text.utf8))
     }
+    private func volumeFixture() throws -> IPhoneAgentVolumeFixture {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let url = root.appendingPathComponent("spec/v1/golden/native-mcp/iphone-agent-volume-policy.json")
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(IPhoneAgentVolumeFixture.self, from: Data(contentsOf: url))
+    }
     private func started(_ executor: PhoneToolExecutor) async throws {
         for _ in 0..<1000 {
             if !executor.tasks.isEmpty { return }
@@ -61,13 +83,46 @@ private actor PhoneToolFallback: NativeMCPServing {
 
     func testCatalogInstructionsAndExistingToolsRemainAvailable() async throws {
         let executor = PhoneToolExecutor(), service = server(executor)
+        let fixture = try volumeFixture()
         let list = try root(await service.handle(rpc("tools/list")))
         XCTAssertEqual(list["result"]?["tools"]?.arrayValue?.compactMap { $0["name"]?.stringValue },
-                       ["android_tap", "iphone_agent_run"])
+                       ["android_tap", fixture.tool])
+        let descriptor = try XCTUnwrap(list["result"]?["tools"]?.arrayValue?.last)
+        XCTAssertTrue(descriptor["description"]?.stringValue?.contains(fixture.instructions) == true)
+        XCTAssertTrue(descriptor["description"]?.stringValue?.contains(fixture.completionGuidance) == true)
         let initResult = try root(await service.handle(rpc("initialize")))
-        XCTAssertTrue(initResult["result"]?["instructions"]?.stringValue?.contains("this DSH session") == true)
+        let instructions = initResult["result"]?["instructions"]?.stringValue ?? ""
+        XCTAssertTrue(instructions.contains("this DSH session"))
+        XCTAssertTrue(instructions.contains(fixture.instructions))
+        XCTAssertTrue(instructions.contains(fixture.completionGuidance))
         let other = try root(await service.handle(rpc(name: "android_tap")))
         XCTAssertEqual(other["result"]?["forwarded"], .bool(true))
+        XCTAssertTrue(executor.tasks.isEmpty)
+    }
+
+    func testSharedVolumeTasksReachTheRealExecutor() async throws {
+        let fixture = try volumeFixture()
+        let executor = PhoneToolExecutor()
+        let service = server(executor)
+        for (index, task) in fixture.validTasks.enumerated() {
+            let response = await service.handle(try rpc(id: index + 1, key: "volume-example-\(index)",
+                                                        args: ["task": .string(task)], name: fixture.tool))
+            XCTAssertEqual(try payload(response)["finished"], .bool(true))
+        }
+        XCTAssertEqual(executor.tasks, fixture.validTasks)
+    }
+
+    func testSharedInvalidVolumeArgumentsAreRejectedBeforeExecution() async throws {
+        let fixture = try volumeFixture()
+        let executor = PhoneToolExecutor()
+        let service = server(executor)
+        for (index, item) in fixture.invalidArguments.enumerated() {
+            var args = item.arguments?.mapValues(JSONValue.string) ?? [:]
+            if let count = item.taskUtf8Bytes { args["task"] = .string(String(repeating: "x", count: count)) }
+            let response = await service.handle(try rpc(id: index + 1, key: "volume-invalid-\(index)",
+                                                        args: args, name: fixture.tool))
+            XCTAssertEqual(try payload(response)["status"], .string(item.expectedStatus), item.name)
+        }
         XCTAssertTrue(executor.tasks.isEmpty)
     }
 

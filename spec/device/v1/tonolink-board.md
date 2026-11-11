@@ -1,7 +1,6 @@
 # TonoLink board phone-control interface, v1
 
-Status: `implemented` (iOS consumer only; §4.1 voice turn `partial` until device evidence). Owner: P07. This registers an existing
-boundary; it adds no wire format of its own.
+Status: `partial` (consumer-control volume support is implemented on both ends; iPhone and board runtime evidence pending). Owner: P07.
 
 A TonoLink board (`tonolink.m21r4`, firmware `agent_s3`) plugs into an iPhone's
 USB-C port. It is the phone's **hands** (Bluetooth HID keyboard and absolute mouse)
@@ -18,7 +17,7 @@ The consumer is `Sources/PhoneDSHBLE/TonoLink*.swift` plus
 | Need | Channel | Contract |
 | --- | --- | --- |
 | LED, Home HTTP | BLE Link Tools profile (`light.set`, `light.get`, `home.http`) | [ble-link.md](ble-link.md); reached by the agent through native MCP `ble_link_call` ([native-mcp.md](../../v1/native-mcp.md)) |
-| Taps, swipes, typing | Board HTTP over USB NCM (§2) | this document |
+| Taps, swipes, typing, system media volume keys | Board HTTP over USB NCM (§2), emitted as BLE HID reports | this document |
 | Screen | APV1 stream over USB NCM (§3) | this document |
 | Pairing, console, BLE OTA (DEBUG) | TonoLink ctrl GATT service (§4) | this document |
 
@@ -37,7 +36,7 @@ the phone (the phone takes `192.168.247.2`). Requests use `Connection: close`;
 | --- | --- |
 | `GET /v1/info` | `model`, `fw.version`, `features` (display only) |
 | `GET /v1/phone/status` | `hid.{keyboard,absolute,input_mode}` must all be true before input; `airplay.{mirror_active,viewer_connected}` |
-| `POST /v1/hid/enable {"on":true}` | Re-attaches HID; the consumer waits ≥6 s before asking again |
+| `POST /v1/hid/enable {"on":true|false}` | Attaches or hides HID; the consumer waits ≥6 s before asking again after enabling |
 | `POST /v1/hid/batch {"steps":[…],"wait":true}` | One gesture per batch; the consumer's HTTP timeout is 15 s plus the batch's planned duration |
 | `POST /v1/usb {"action":"enable"}` | Brings NCM and the AirPlay receiver up (RAM-only on the board) |
 
@@ -46,6 +45,58 @@ is **not retried**: the outcome on the phone is unknown. The agent re-observes t
 screen before the next step. The one exception is `503` with `busy_exec`: the board's HID executor
 was still finishing the previous batch and ran nothing of this one, so the consumer resends it
 every 300 ms for up to about 3 s.
+
+### 2.1 System media volume keys
+
+`GET /v1/phone/status` adds `hid.consumer_control` (boolean): true only when the BLE HID service is
+enabled, the encrypted iPhone connection has read the Report Map, and the Consumer Control input
+report notification is subscribed. Older firmware omits this member; a consumer must treat the
+missing member as unsupported firmware, not as a ready state.
+
+`POST /v1/hid/batch` accepts one additional step shape:
+
+```json
+{"op":"consumer","key":"volume_up"}
+```
+
+`key` is exactly `volume_up` or `volume_down`; additional fields are rejected. The step emits one
+Consumer Page (0x0C) HID input report press followed by its release, through the existing queue,
+controller lease, backpressure, abort, and release-all behavior. Report ID is 4; the report payload
+is one byte, with bit 0 asserting Volume Increment (Usage 0xE9) or bit 1 asserting Volume Decrement
+(Usage 0xEA). A release report has both bits clear. These are the USB-IF Consumer Control usages;
+they are relative media output volume keys, not a ringer/Silent-mode control.
+
+One accepted step is one relative increment or decrement. There is no absolute-volume field or
+percentage guarantee. Firmware success means the report was accepted by the HID queue, not that
+the iPhone confirmed a volume change. If the call times out or is interrupted after submission,
+the outcome is unknown and must not be retried. The existing `503 busy_exec` response remains safe
+to retry because the batch executor did not accept the step.
+
+Compatibility: old consumers and old operations work unchanged on new firmware. A new consumer
+calling an old firmware with this step receives the old parser's `400 bad_request` before any HID
+report is queued; the app must report that the Link firmware needs an update and must not fall back
+to blind screen taps. No persisted data is affected. The board API remains v1 because this adds one
+step to the existing closed operation set.
+
+The exact step shape and invalid cases are in
+[tonolink-hid-consumer-step.schema.json](schema/tonolink-hid-consumer-step.schema.json); the shared
+request/report vectors are in [tonolink-hid-consumer-control.json](golden/tonolink-hid-consumer-control.json).
+
+### 2.2 Return control to the iPhone
+
+`POST /v1/hid/enable {"on":false}` is the existing desired-state operation, not a new route.
+It releases all held reports and hides the HID service. After a UI-Venus task or a local
+Consumer Control volume command, the iOS consumer must call it before returning control to
+the person. Hiding the external keyboard lets iOS present its software keyboard the next time
+the person focuses a text field. The next board-controlled task calls `{"on":true}` through
+`ensureHID`, then waits for HID subscriptions before sending input. The Control GATT
+connection and wake-word audio path remain separate from the HID service.
+
+The consumer treats this as best-effort cleanup: a detach error is logged but does not replace
+the already-observed task or volume outcome. This operation sets a state and is safe to repeat;
+it does not replay the previous key or pointer action. The request body and API version are
+unchanged. Shared lifecycle requests are recorded in
+[tonolink-hid-consumer-control.json](golden/tonolink-hid-consumer-control.json).
 
 ## 3. Screen stream (APV1)
 
@@ -63,6 +114,21 @@ Service `5DBD66EC-9E78-42D4-854F-DE5EBBFFA363`: `cmd` `2D0EA61C-DCAC-48A2-816C-8
 encryption), optional `audio` `7A1C9E52-3B6D-4F08-9C2E-5D4B8A61F0A3`. Console lines
 and BLE OTA framing are defined by `TonoLinkBLEDebugProtocol.swift` and
 `TonoLinkUSBOTAProtocol.swift`, matching the firmware's `pa_ctrl_core.c`.
+
+### 4.2 GATT database changes
+
+The firmware keeps a persistent local GATT layout revision. Any addition, removal, or
+reordering of a service or characteristic increments that revision. When the revision
+differs from the saved value, the board emits the standard Generic Attribute Service
+Service Changed indication for handles `0x0001`–`0xFFFF` on the next encrypted BLE
+connection, then saves the running revision. A bonded iPhone must rediscover the GATT
+database before its next control write. This also applies after OTA rollback: a version
+change in either direction triggers another Service Changed indication. This revision is
+local firmware state; it adds no HTTP field, BLE command, or alternate control path.
+
+The consumer-control report in §2.1 changes the HID service layout. The board firmware
+therefore moves its local GATT layout revision from 4 to 5. Existing control-service UUIDs,
+permissions, and command encoding remain unchanged.
 
 ### 4.1 Voice turn (board wake word → phone)
 

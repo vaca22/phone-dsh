@@ -383,17 +383,20 @@ struct TonoLinkUSBOTAPage: View {
             save(); return
         }
         if mode == "get" {
-            // Read-only: PDSH_TONOLINK_GET_PATHS="/v1/wifi,/v1/info" → exact status and body per path.
+            // Read-only direct HTTP GETs over USB NCM; no BLE command or USB session is needed.
             let paths = (ProcessInfo.processInfo.environment["PDSH_TONOLINK_GET_PATHS"] ?? "/ota/state").split(separator: ",").map(String.init)
-            let flow = TonoLinkUSBOTA(ctrl: TonoLinkCtrlBLE(nameHint: model.nameHint), network: TonoLinkUSBSocketNetwork(), http: TonoLinkURLSessionHTTP())
-            var steps: [String] = []
-            flow.onEvent = { if case .step(let text) = $0 { steps.append(text) } }
+            let http = TonoLinkURLSessionHTTP()
             do {
-                let results = try await flow.get(paths: paths)
-                report["responses"] = results.map { ["path": $0.path, "status": $0.status, "body": String(decoding: $0.body, as: UTF8.self)] }
+                var results: [[String: Any]] = []
+                for path in paths {
+                    var request = URLRequest(url: TonoLinkUSB.baseURL.appendingPathComponent(path), timeoutInterval: 5)
+                    request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+                    let (status, body) = try await http.send(request, body: nil, progress: nil)
+                    results.append(["path": path, "status": status, "body": String(decoding: body, as: UTF8.self)])
+                }
+                report["responses"] = results
                 report["status"] = "passed"
             } catch { report["status"] = "failed"; report["error"] = error.localizedDescription }
-            report["steps"] = steps
             save(); return
         }
         var action: TonoLinkUSBOTAModel.Action = mode == "update" ? .update : mode == "confirm" ? .confirm : mode == "wifi" ? .wifi : .state

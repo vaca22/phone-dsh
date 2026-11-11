@@ -278,6 +278,10 @@ import ProbeKit
 
     /// Sends the heard text to the current chat and speaks the turn's last assistant text (§4).
     private func answer(_ text: String, credential: String, start: Date) async {
+        if let direction = TonoLinkVolumeIntent.direction(for: text) {
+            await answerVolumeCommand(direction, credential: credential, start: start)
+            return
+        }
         let chat = ChatModel.shared
         guard await chat.send(text) else { note("error", "当前对话没有接受这条消息"); return }
         var waited = 0
@@ -297,6 +301,41 @@ import ProbeKit
         note("reply", String(reply.text.prefix(500)))
         note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
         do { try await speak(reply.text, credential: credential) } catch { note("speak_error", error.localizedDescription) }
+    }
+
+    /// A clear one-step volume command is handled locally, without the LLM or UI-Venus screen loop.
+    private func answerVolumeCommand(_ direction: TonoLinkVolumeDirection, credential: String, start: Date) async {
+        let before = AVAudioSession.sharedInstance().outputVolume
+        let hands = IPhoneAgentHost.shared.hands
+        do {
+            try await hands.adjustOutputVolume(direction)
+        } catch {
+            do { try await hands.disableHID() }
+            catch { note("keyboard_restore_error", error.localizedDescription) }
+            let reply = "没能调整手机音量：\(error.localizedDescription)"
+            note("volume_error", error.localizedDescription)
+            note("reply", reply)
+            note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
+            do { try await speak(reply, credential: credential) } catch { note("speak_error", error.localizedDescription) }
+            return
+        }
+        do { try await hands.disableHID() }
+        catch { note("keyboard_restore_error", error.localizedDescription) }
+
+        // Read-only outputVolume is the only public iOS observation available to confirm the
+        // hardware-style key. Never resend after a missing change: the key may already have landed.
+        try? await Task.sleep(for: .milliseconds(250))
+        let after = AVAudioSession.sharedInstance().outputVolume
+        let changed = direction == .up ? after > before + 0.001 : after < before - 0.001
+        let atLimit = direction == .up ? before >= 0.999 : before <= 0.001
+        let reply = changed ? (direction == .up ? "手机媒体音量已调高。" : "手机媒体音量已调低。")
+            : atLimit ? (direction == .up ? "手机媒体音量已经最大。" : "手机媒体音量已经最小。")
+            : "音量键已发送，但系统音量没有可观察到的变化；我没有重复发送。"
+        note("volume", ["direction": direction == .up ? "up" : "down", "before": before, "after": after,
+                         "changed": changed, "at_limit": atLimit])
+        note("reply", reply)
+        note("reply_ms", Int(Date().timeIntervalSince(start) * 1000))
+        do { try await speak(reply, credential: credential) } catch { note("speak_error", error.localizedDescription) }
     }
 
     // MARK: - Speech

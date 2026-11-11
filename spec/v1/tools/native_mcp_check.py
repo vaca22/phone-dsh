@@ -79,6 +79,51 @@ def ble_vector(data):
     response(data["response"], request(data["request"], "ble_"))
 
 
+def iphone_agent_volume_policy(data):
+    fields(data, {"tool", "instructions", "completion_guidance", "valid_tasks", "invalid_arguments"},
+           {"tool", "instructions", "completion_guidance", "valid_tasks", "invalid_arguments"}, "iPhone volume policy")
+    require(data["tool"] == "iphone_agent_run", "iPhone volume policy: wrong tool")
+    guidance = data["instructions"]
+    require(type(guidance) is str and guidance, "iPhone volume policy: missing instructions")
+    for phrase in ("media/output", "Control Center", "10 percentage points", "0%",
+                   "Silent mode", "fresh screenshot", "private volume APIs",
+                   "replay an uncertain adjustment"):
+        require(phrase in guidance, f"iPhone volume policy: missing {phrase!r} guidance")
+
+    completion = data["completion_guidance"]
+    require(type(completion) is str and completion, "iPhone volume policy: missing completion guidance")
+    for phrase in ("one short sentence", "step counts", "durations", "model self-assessment"):
+        require(phrase in completion, f"iPhone volume policy: missing {phrase!r} completion guidance")
+
+    valid_tasks = data["valid_tasks"]
+    require(type(valid_tasks) is list and valid_tasks, "iPhone volume policy: expected valid task examples")
+    require(all(type(task) is str and task.strip() for task in valid_tasks),
+            "iPhone volume policy: valid task examples must be non-empty strings")
+
+    cases = data["invalid_arguments"]
+    require(type(cases) is list and cases, "iPhone volume policy: expected invalid arguments")
+    names = set()
+    for case in cases:
+        mapping(case, "iPhone volume invalid-argument case")
+        fields(case, {"name", "arguments", "task_utf8_bytes", "expected_status"},
+               {"name", "expected_status"}, "iPhone volume invalid-argument case")
+        require(type(case["name"]) is str and case["name"] and case["name"] not in names,
+                "iPhone volume invalid-argument case: missing or duplicate name")
+        names.add(case["name"])
+        require(case["expected_status"] == "invalid_arguments",
+                "iPhone volume invalid-argument case: wrong expected status")
+        if "arguments" in case:
+            args = mapping(case["arguments"], "iPhone volume arguments")
+            require(set(args) <= {"task", "session_id"}, "iPhone volume arguments: unexpected fixture field")
+            require(all(type(value) is str for value in args.values()),
+                    "iPhone volume arguments: fixture values must be strings")
+        if "task_utf8_bytes" in case:
+            require(type(case["task_utf8_bytes"]) is int and case["task_utf8_bytes"] == 8193,
+                    "iPhone volume arguments: expected the first task size over the 8192-byte limit")
+    require(names == {"missing task", "blank task", "unexpected argument", "task exceeds UTF-8 byte limit"},
+            "iPhone volume policy: missing required negative examples")
+
+
 def package_vector(data):
     require(type(data) is list and data, "package-management: expected non-empty array")
     for item in data:
@@ -163,6 +208,8 @@ def validate(root: Path) -> int:
             transfer_vector(data)
         elif path.name == "ble-devices.json":
             ble_vector(data)
+        elif path.name == "iphone-agent-volume-policy.json":
+            iphone_agent_volume_policy(data)
         else:
             http_vector(data)
     return len(files)

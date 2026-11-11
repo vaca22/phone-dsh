@@ -1,0 +1,59 @@
+{
+  "contract": "P07",
+  "revision": "consumer-control-volume-v1",
+  "input_mode_lifecycle": {
+    "detach_after_task": {
+      "method": "POST",
+      "path": "/v1/hid/enable",
+      "body": { "on": false }
+    },
+    "reattach_before_next_task": {
+      "method": "POST",
+      "path": "/v1/hid/enable",
+      "body": { "on": true }
+    }
+  },
+  "report": {
+    "id": 4,
+    "length_including_report_id": 2,
+    "usage_page": 12,
+    "volume_increment_usage": 233,
+    "volume_decrement_usage": 234,
+    "volume_up_bit": 1,
+    "volume_down_bit": 2,
+    "release_bits": 0,
+    "descriptor_append": [
+      5, 12, 9, 1, 161, 1, 133, 4, 21, 0, 37, 1, 9, 233, 9, 234,
+      117, 1, 149, 2, 129, 2, 117, 6, 149, 1, 129, 3, 192
+    ]
+  },
+  "valid": [
+    {
+      "name": "volume_up",
+      "step": { "op": "consumer", "key": "volume_up" },
+      "reports": [[4, 1], [4, 0]]
+    },
+    {
+      "name": "volume_down",
+      "step": { "op": "consumer", "key": "volume_down" },
+      "reports": [[4, 2], [4, 0]]
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unknown_consumer_usage",
+      "step": { "op": "consumer", "key": "mute" },
+      "error": "invalid_argument"
+    },
+    {
+      "name": "unexpected_repeat_count",
+      "step": { "op": "consumer", "key": "volume_up", "count": 2 },
+      "error": "bad_request"
+    },
+    {
+      "name": "wrong_key_type",
+      "step": { "op": "consumer", "key": 233 },
+      "error": "bad_request"
+    }
+  ]
+}

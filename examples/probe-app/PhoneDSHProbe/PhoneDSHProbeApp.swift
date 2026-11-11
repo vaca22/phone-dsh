@@ -31,7 +31,15 @@ struct PhoneDSHProbeApp: App {
         WorkspaceStorageMigration.runIfNeeded()
         // The board's wake word 你好小智 starts a voice turn (tonolink-board.md §4.1). Started here,
         // not in a scene task, so a background relaunch by Bluetooth state restoration listens too.
+        #if DEBUG
+        // USB OTA diagnostics need exclusive ownership of the board's BLE ctrl connection.
+        // The normal voice listener is restarted on the next ordinary app launch.
+        if ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] == nil {
+            Task { @MainActor in TonoLinkVoiceHost.shared.start() }
+        }
+        #else
         Task { @MainActor in TonoLinkVoiceHost.shared.start() }
+        #endif
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["PDSH_APPEARANCE"],
            let value = NativeAppearance(rawValue: raw) {
@@ -86,8 +94,15 @@ struct PhoneDSHProbeApp: App {
                     #endif
                     model.refreshLockdown()
                     // The user's own boards: connected once means trusted, and they reconnect by themselves.
-                    BLEDeviceStore.shared.trustConnectedDevices = true
-                    BLEDeviceStore.shared.reconnectRemembered()
+                    #if DEBUG
+                    let runningBoardDiagnostic = ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] != nil
+                    #else
+                    let runningBoardDiagnostic = false
+                    #endif
+                    if !runningBoardDiagnostic {
+                        BLEDeviceStore.shared.trustConnectedDevices = true
+                        BLEDeviceStore.shared.reconnectRemembered()
+                    }
                     await workspaceModels.startAtLaunch()
                     #if DEBUG
                     PCLinkDebugAutomation.shared.start(models: workspaceModels)
@@ -100,7 +115,10 @@ struct PhoneDSHProbeApp: App {
                     }
                 }
                 #if DEBUG
-                .task { await Self.bleAutoconnect() }
+                .task {
+                    guard ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] == nil else { return }
+                    await Self.bleAutoconnect()
+                }
                 .task {
                     if let mode = ProcessInfo.processInfo.environment["PDSH_TONOLINK_USB_OTA"] { await TonoLinkUSBOTADiagnostics.run(mode) }
                 }

@@ -20,7 +20,21 @@ class NativeMCPCheckTests(unittest.TestCase):
         return load_json(ROOT / "spec/v1/golden/native-mcp" / name)
 
     def test_all_production_vectors_pass(self):
-        self.assertEqual(checker.validate(ROOT), 5)
+        self.assertEqual(checker.validate(ROOT), 6)
+
+    def test_volume_policy_requires_confirmation_and_negative_examples(self):
+        vector = self.fixture("iphone-agent-volume-policy.json")
+        vector["instructions"] = vector["instructions"].replace("fresh screenshot", "screenshot")
+        with self.assertRaises(SpecError):
+            checker.iphone_agent_volume_policy(vector)
+        vector = self.fixture("iphone-agent-volume-policy.json")
+        vector["completion_guidance"] = "Report the result."
+        with self.assertRaises(SpecError):
+            checker.iphone_agent_volume_policy(vector)
+        vector = self.fixture("iphone-agent-volume-policy.json")
+        vector["invalid_arguments"][-1]["task_utf8_bytes"] = 8192
+        with self.assertRaises(SpecError):
+            checker.iphone_agent_volume_policy(vector)
 
     def test_ble_rejects_android_tool_and_response_id(self):
         vector = self.fixture("ble-devices.json")

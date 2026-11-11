@@ -117,6 +117,7 @@ GOLDEN_READERS = (
     ("spec/v1/golden/tono-account", "cases.json", "android/net/src/test/kotlin/com/phonedsh/loopback/LoopbackModelProxyTest.kt", False),
     ("spec/v1/golden/cloud-voice", "cases.json", "Tests/PhoneDSHTests/CloudVoiceTests.swift", False),
     ("spec/device/v1/golden", "tonolink-voice.json", "Tests/PhoneDSHBLETests/TonoLinkVoiceTests.swift", False),
+    ("spec/device/v1/golden", "tonolink-hid-consumer-control.json", "Tests/PhoneDSHBLETests/TonoLinkVolumeCommandTests.swift", False),
     ("spec/v1/golden/mcp-long-call", "cases.json", "Tests/PhoneDSHBotTests/MCP/BotMCPLongCallTests.swift", False),
     ("spec/v1/golden/perturbations", "*.json", "spec/v1/tools/fixture_check.py", False),
     ("spec/v1/golden/upstream", "*.json", "spec/v1/tools/fixture_check.py", False),
