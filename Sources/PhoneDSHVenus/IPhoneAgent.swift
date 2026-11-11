@@ -276,6 +276,9 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
     - To open an app, use `LaunchApp` with its name: it searches the phone and opens the best match. Do not look for app icons on the home screen. If a different app opened, use `LaunchApp` again with the app's English name.
     - When the task asks you to read, check or report something, use `Answer` as soon as the screen shows it. Do not leave that screen first (for example back to a list or the home screen), even if the task also says to go back afterwards: answering is the end of the task.
     - If a system permission or privacy prompt is in front (for example 允许 / 不允许, 共享联系人, 位置, 通知), do not choose for the user: use `CallUser` and say what the prompt asks.
+    - Chat apps (微信, Messages, 短信 …): tap the input bar once before typing; if it shows 「按住 转文字」or 「按住 说话」it is in voice mode and typed text goes nowhere. After the text is visibly in the field, send it with `PressEnter()`. The board's hardware keyboard makes WeChat keep ⊕ on the right instead of turning it into 「发送」, so do not hunt for a send button; tap a visible 「发送」only if one is actually on screen.
+    - Typing Chinese switches the iOS keyboard and can leave the input-source list (「简体拼音 / English (US) / 表情符号」) over the screen. Tap the message area once to dismiss it before sending.
+    - After sending, look at the new screenshot: the message must appear as a bubble in the conversation and the input field must be empty. Text still sitting in the field means it was not sent.
     - Answer in Chinese.
 
     ### Output Format

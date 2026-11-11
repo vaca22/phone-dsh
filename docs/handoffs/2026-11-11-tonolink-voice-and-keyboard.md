@@ -137,6 +137,24 @@
 - 固件有**受支持的合成唤醒**：console `wake` / `POST /cmd` body `wake` / BLE `<seq> con wake`，产生 `ev wake n=0`；`spec/device/v1/tonolink-board.md` §4 明确 n=0 是模拟唤醒。它验证固件事件→BLE notify→app 解析→`listen`，不验证 WakeNet。手机上可以用中继 `POST /board/cmd`（body `wake`）触发。
 - 本轮没有执行合成唤醒（中继需要在手机上手动开启，且它的 BLE 连接与语音主机互斥）；`你好小智` 的持续唤醒仍需人说一次。
 
+### 7. 发微信消息：模型没按回车，而是找不存在的发送按钮（2026-11-11 追加）
+
+真机任务记录 `Documents/iphone-agent/20261111-201725`（语音「打开微信给李光浩发消息，让他去吃饭」）：模型 12 步后因“反复执行同样的操作”中止。逐步看截图：
+
+- 微信输入栏初始是语音模式（占位「可按住 转文字」），模型第 10 步把点击落在输入框内部 `(370,910)`，不是发送键；
+- 中文输入经 `TonoLinkPhoneHands.type` 的 ctrl+space 切输入法，屏幕中央弹出 iOS 输入法浮层（「简体拼音 / English (US) / 表情符号」）；
+- 文本确实进了输入框（`step12.jpg` 可见「去吃饭吧」），但**板子的硬件键盘在时微信右侧一直是 ⊕，不会变成「发送」**，模型找不到发送键 → 反复 Type+Click → 循环保护中止。
+
+`PressEnter()` 链路本来是通的（`IPhoneAgent` → `IPhoneAgentHost.perform` → `hands.key("enter")` → 板子 HID Enter），只是提示词没要求用。已在 `Sources/PhoneDSHVenus/IPhoneAgent.swift` 的 system prompt 补上：聊天类 App 先点输入栏（语音模式要先切文字）、输入后**用 `PressEnter()` 发送**、不要找看不见的发送键、输入法浮层先点消息区关掉、发送后必须看到气泡且输入框为空。新构建已安装到设备。
+
+验证状态：**NOT_RUN**。复跑时遇到另一个问题（见下），不是发送逻辑本身。
+
+### 8. 屏幕镜像的旧帧会让模型对着旧画面操作（新发现，未修）
+
+12:22 与 12:25 两次任务分别失败于 `TonoLinkScreen` 的「还没有画面：请在控制中心 → 屏幕镜像里选择板子」（`Sources/PhoneDSHBLE/TonoLinkScreen.swift:453`）和 **旧帧**：截图仍是本 App 的聊天页（含 AssistiveTouch 菜单），而实际手机已在别的界面，模型据此乱点。板端 `/v1/phone/status` 同时报 `airplay.mirror_active=true, frame_age_ms=99`，说明板子在收帧、是 App 的 viewer 侧没有拿到新帧。怀疑：viewer 晚加入时依赖关键帧/GOP 缓存，`prepare()` 第一次 `snapshot()` 直接取了缓存旧帧。下一步应让 `prepare()` 等到“连接之后产生的帧”（或请求关键帧），并且 `IPhoneAgentHost.perform` 前校验帧龄；这属于 P04/P07 的镜像通道问题，需要单独一轮修复与真机验证。
+
+另：本轮多次用 `PDSH_TONOLINK_USB_OTA=…` 无头启动做诊断（`get`/`ble-con`），每次都会 `--terminate-existing` 重启 App，语音主机随之离线。12:17:14 的日志 `ev wake n=7 up=9015702` 证明唤醒链路本身正常；用户在那段时间“唤不醒”很可能正是被这些诊断重启打断的。后续做板端诊断要避免在用户使用语音的窗口内反复重启 App。
+
 ## 交接状态与后续验证
 
 ```text
